@@ -17,7 +17,6 @@ VRML_HEADER = """#VRML V2.0 utf8
 
 
 def get_materials(obj_data: str) -> dict:
-
     material_regex = "newmtl .*?endmtl"
     matchs = re.findall(pattern=material_regex, string=obj_data, flags=re.DOTALL)
 
@@ -110,8 +109,39 @@ def generate_wrl_model(model_3d: Ee3dModel) -> Ki3dModel:
 
         raw_wrl += shape_str
 
+    def _find_lowest_coord_and_middle_coord():
+        coords = [
+            tuple(float(c) * 2.54 for c in coord.split(" ")) for coord in vertices
+        ]
+        min_x = min(coords, key=lambda xy: xy[0])[0]
+        min_y = min(coords, key=lambda xy: xy[1])[1]
+        min_z = min(coords, key=lambda xy: xy[2])[2]
+        max_x = max(coords, key=lambda xy: xy[0])[0]
+        max_y = max(coords, key=lambda xy: xy[1])[1]
+        max_z = max(coords, key=lambda xy: xy[2])[2]
+
+        lowest_coord = (min_x, min_y, min_z)
+        middle_coord = ((min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2)
+        bbox = (max_x - min_x, max_y - min_y)
+
+        lowest_coord_mm = tuple(map(lambda x: round(x / 2.54, 4), lowest_coord))
+        middle_coord_mm = tuple(map(lambda x: round(x / 2.54, 4), middle_coord))
+        bbox_mm = tuple(map(lambda x: round(x / 2.54, 4), bbox))
+
+        # print(f"Lowest coord: {lowest_coord} [{lowest_coord_mm} mm]")
+        # print(f"Middle coord: {middle_coord} [{middle_coord_mm} mm]")
+        # print(f"Bbox: {bbox} [{bbox_mm} mm]")
+
+        return (lowest_coord, middle_coord, bbox), (
+            lowest_coord_mm,
+            middle_coord_mm,
+            bbox_mm,
+        )
+
+    translation = _find_lowest_coord_and_middle_coord()
+
     return Ki3dModel(
-        translation=None, rotation=None, name=model_3d.name, raw_wrl=raw_wrl
+        translation=translation, rotation=None, name=model_3d.name, raw_wrl=raw_wrl
     )
 
 

@@ -1,4 +1,5 @@
 # Global imports
+import copy
 import logging
 from math import acos, cos, isnan, pi, sin, sqrt
 from typing import Tuple, Union
@@ -166,8 +167,10 @@ def rotate(x: float, y: float, degrees: float) -> Tuple[float, float]:
 
 
 class ExporterFootprintKicad:
-    def __init__(self, footprint: ee_footprint):
+    def __init__(self, footprint: ee_footprint, model_3d: Ki3dModel | None = None):
         self.input = footprint
+        self.model_3d = model_3d
+
         if not isinstance(self.input, ee_footprint):
             logging.error("Unsupported conversion")
         else:
@@ -175,6 +178,8 @@ class ExporterFootprintKicad:
 
     def generate_kicad_footprint(self) -> None:
         # Convert dimension from easyeda to kicad
+
+        bbox_backup = copy.copy(self.input.bbox)
         self.input.bbox.convert_to_mm()
 
         for fields in (
@@ -194,20 +199,70 @@ class ExporterFootprintKicad:
         )
 
         if self.input.model_3d is not None:
+            from rich.console import Console
+            from rich.table import Table
+
+            console = Console()
+            table = Table()
+            table.add_column(
+                f"{self.input.info.name} ({self.input.info.fp_type})", width=40
+            )
+            table.add_column("x", justify="right", width=9)
+            table.add_column("y", justify="right", width=9)
+            table.add_column("z", justify="right", width=9)
+
+            def _fmt_float(val: float) -> str:
+                return f"{val:.4f}"
+
+            def _fmt_tuple(val):
+                return tuple(_fmt_float(v) for v in val)
+
+            def _fmt_xy(val):
+                if hasattr(val, "z"):
+                    return _fmt_tuple((val.x, val.y, val.z))
+                return _fmt_tuple((val.x, val.y))
+
+            table.add_section()
+            table.add_row("bbox in", *_fmt_xy(bbox_backup))
+            table.add_row("translation in", *_fmt_xy(self.input.model_3d.translation))
+            table.add_row(
+                "bbox - translation in",
+                _fmt_float(bbox_backup.x - self.input.model_3d.translation.x),
+                _fmt_float(bbox_backup.y - self.input.model_3d.translation.y),
+            )
+
+            if self.model_3d:
+                table.add_row(
+                    "model lowest in", *_fmt_tuple(self.model_3d.translation[0][0])
+                )
+                table.add_row(
+                    "model middle in", *_fmt_tuple(self.model_3d.translation[0][1])
+                )
+
             self.input.model_3d.convert_to_mm()
 
-            # if self.input.model_3d.translation.z != 0:
-            #     self.input.model_3d.translation.z -= 1
+            translation_theoretical = (
+                round(
+                    (self.input.model_3d.translation.x - self.input.bbox.x) * 2.54,
+                    2,
+                ),
+                -round(
+                    (self.input.model_3d.translation.y - self.input.bbox.y) * 2.54,
+                    2,
+                ),
+                -round(self.input.model_3d.translation.z, 2),
+            )
+
             ki_3d_model_info = Ki3dModel(
                 name=self.input.model_3d.name,
-                translation=Ki3dModelBase(
-                    x=round((self.input.model_3d.translation.x - self.input.bbox.x), 2),
-                    y=-round(
-                        (self.input.model_3d.translation.y - self.input.bbox.y), 2
-                    ),
-                    z=-round(self.input.model_3d.translation.z, 2)
+                translation=(
+                    Ki3dModelBase(x=0, y=0, z=translation_theoretical[2])
                     if self.input.info.fp_type == "smd"
-                    else 0,
+                    else Ki3dModelBase(
+                        x=translation_theoretical[0],
+                        y=translation_theoretical[1],
+                        z=0,
+                    )
                 ),
                 rotation=Ki3dModelBase(
                     x=(360 - self.input.model_3d.rotation.x) % 360,
@@ -216,7 +271,27 @@ class ExporterFootprintKicad:
                 ),
                 raw_wrl=None,
             )
-            # print(ki_3d_model_info)
+            table.add_section()
+            table.add_row(
+                "translation_theo mm",
+                _fmt_float(translation_theoretical[0]),
+                _fmt_float(translation_theoretical[1]),
+                _fmt_float(translation_theoretical[2]),
+            )
+            table.add_row(
+                "translation in",
+                _fmt_float(ki_3d_model_info.translation.x * 2.54),
+                _fmt_float(ki_3d_model_info.translation.y * 2.54),
+                _fmt_float(ki_3d_model_info.translation.z * 2.54),
+            )
+            table.add_row("translation mm", *_fmt_xy(ki_3d_model_info.translation))
+
+            table.add_section()
+            table.add_row("rotation", *_fmt_xy(self.input.model_3d.rotation))
+            table.add_row("rotation out", *_fmt_xy(ki_3d_model_info.rotation))
+
+            if self.model_3d:
+                console.print(table)
         else:
             ki_3d_model_info = None
 
